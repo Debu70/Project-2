@@ -1,3 +1,645 @@
+## 🏗️ Terraform Infrastructure Provisioning
+
+Terraform is used in this project to provision the AWS infrastructure required for the two-EC2 architecture.
+
+Instead of manually creating EC2 instances from the AWS Console, Terraform defines the infrastructure as code and creates the resources in a repeatable and consistent way.
+
+### Terraform Architecture
+
+```text
+                    Terraform
+                        │
+                        │ AWS Provider
+                        ▼
+                  ┌─────────────┐
+                  │     AWS     │
+                  └──────┬──────┘
+                         │
+              ┌──────────┴──────────┐
+              │                     │
+              ▼                     ▼
+      ┌───────────────┐     ┌──────────────────┐
+      │ Bastion EC2   │     │ Application EC2  │
+      │               │     │                  │
+      │ t3.micro      │     │ m7i-flex.large   │
+      │ Public Subnet │     │ Private Subnet   │
+      │ SSH :22       │────▶│ SSH :22          │
+      └───────────────┘     │ Docker / Nginx   │
+                            │ Website :80      │
+                            └──────────────────┘
+```
+
+### 🎯 What Terraform Creates
+
+The Terraform configuration is designed to provision two EC2 instances:
+
+| Resource           | Purpose                        | Instance Type    | Network        |
+| ------------------ | ------------------------------ | ---------------- | -------------- |
+| Bastion Server     | Secure administrative access   | `t3.micro`       | Public subnet  |
+| Application Server | Hosts Docker/Nginx application | `m7i-flex.large` | Private subnet |
+
+The infrastructure can be recreated using the same Terraform configuration instead of manually creating each EC2 instance.
+
+---
+
+## 📁 Terraform Project Structure
+
+Example Terraform project structure:
+
+```text
+Terraform-2-EC2/
+│
+├── version.tf
+├── provider.tf
+├── data.tf
+├── variables.tf
+├── terraform.tfvars
+├── main.tf
+└── output.tf
+```
+
+### `version.tf`
+
+Defines the Terraform and AWS provider requirements.
+
+```hcl
+terraform {
+  required_version = ">= 1.5.0"
+
+  required_providers {
+    aws = {
+      source  = "hashicorp/aws"
+      version = "~> 6.0"
+    }
+  }
+}
+```
+
+### `provider.tf`
+
+Configures Terraform to communicate with AWS.
+
+```hcl
+provider "aws" {
+  region = var.region
+}
+```
+
+### `data.tf`
+
+Retrieves the latest suitable Amazon Linux 2023 AMI instead of hardcoding an AMI ID.
+
+```hcl
+data "aws_ami" "amazon_linux" {
+  most_recent = true
+  owners      = ["amazon"]
+
+  filter {
+    name   = "name"
+    values = ["al2023-ami-*-x86_64"]
+  }
+
+  filter {
+    name   = "state"
+    values = ["available"]
+  }
+
+  filter {
+    name   = "root-device-type"
+    values = ["ebs"]
+  }
+}
+```
+
+### `variables.tf`
+
+Defines reusable Terraform variables such as AWS region, key pair, instance types, and instance names.
+
+```hcl
+variable "region" {
+  description = "AWS region"
+  type        = string
+  default     = "ap-south-1"
+}
+
+variable "key_name" {
+  description = "Existing EC2 key pair name"
+  type        = string
+}
+
+variable "instance_types" {
+  description = "EC2 instance types"
+  type        = list(string)
+
+  default = [
+    "t3.micro",
+    "m7i-flex.large"
+  ]
+}
+
+variable "instance_names" {
+  description = "EC2 instance names"
+  type        = list(string)
+
+  default = [
+    "bastion-server",
+    "app-server"
+  ]
+}
+```
+
+### `terraform.tfvars`
+
+Contains environment-specific values.
+
+```hcl
+region = "ap-south-1"
+
+key_name = "<YOUR_EC2_KEY_PAIR>"
+
+instance_types = [
+  "t3.micro",
+  "m7i-flex.large"
+]
+
+instance_names = [
+  "bastion-server",
+  "app-server"
+]
+```
+
+> ⚠️ Never commit private keys, AWS access keys, passwords, tokens, or other sensitive information to GitHub.
+
+---
+
+# 🔄 Terraform Workflow
+
+Terraform follows a declarative Infrastructure as Code workflow.
+
+```text
+┌─────────────┐
+│ Write .tf   │
+│ files       │
+└──────┬──────┘
+       │
+       ▼
+┌─────────────┐
+│ terraform   │
+│ init        │
+└──────┬──────┘
+       │
+       ▼
+┌─────────────┐
+│ terraform   │
+│ fmt         │
+└──────┬──────┘
+       │
+       ▼
+┌─────────────┐
+│ terraform   │
+│ validate    │
+└──────┬──────┘
+       │
+       ▼
+┌─────────────┐
+│ terraform   │
+│ plan        │
+└──────┬──────┘
+       │
+       ▼
+┌─────────────┐
+│ terraform   │
+│ apply       │
+└──────┬──────┘
+       │
+       ▼
+┌────────────────────┐
+│ AWS Infrastructure │
+└────────────────────┘
+```
+
+### 1. Terraform Init
+
+Initializes the Terraform working directory and downloads the required providers.
+
+```bash
+terraform init
+```
+
+Example:
+
+```text
+Initializing the backend...
+Initializing provider plugins...
+- Installing hashicorp/aws...
+Terraform has been successfully initialized!
+```
+
+---
+
+### 2. Terraform Format
+
+Formats Terraform configuration files according to standard Terraform syntax.
+
+```bash
+terraform fmt
+```
+
+To format all Terraform files recursively:
+
+```bash
+terraform fmt -recursive
+```
+
+---
+
+### 3. Terraform Validate
+
+Checks whether the Terraform configuration is syntactically valid and internally consistent.
+
+```bash
+terraform validate
+```
+
+Expected:
+
+```text
+Success! The configuration is valid.
+```
+
+---
+
+### 4. Terraform Plan
+
+Creates an execution plan showing what Terraform intends to create, modify, or destroy.
+
+```bash
+terraform plan
+```
+
+Typical output:
+
+```text
+Plan: 2 to add, 0 to change, 0 to destroy.
+```
+
+This step is useful for reviewing infrastructure changes before actually applying them.
+
+---
+
+### 5. Terraform Apply
+
+Creates or updates the AWS infrastructure.
+
+```bash
+terraform apply
+```
+
+Terraform displays the proposed changes and asks for confirmation.
+
+```text
+Do you want to perform these actions?
+
+  Enter a value: yes
+```
+
+For automated/lab environments:
+
+```bash
+terraform apply -auto-approve
+```
+
+---
+
+### 6. Terraform Output
+
+Displays values defined in `output.tf`, such as instance IDs and IP addresses.
+
+```bash
+terraform output
+```
+
+For a specific output:
+
+```bash
+terraform output bastion_public_ip
+```
+
+Example:
+
+```text
+"xx.xx.xx.xx"
+```
+
+> Use placeholders in documentation. Do not publish real public/private IP addresses if they are part of your live infrastructure.
+
+---
+
+### 7. Terraform Show
+
+Displays the current Terraform-managed infrastructure state.
+
+```bash
+terraform show
+```
+
+This can be useful for inspecting resources that Terraform currently manages.
+
+---
+
+### 8. Terraform State List
+
+Shows resources currently tracked by Terraform.
+
+```bash
+terraform state list
+```
+
+Example:
+
+```text
+aws_instance.bastion
+aws_instance.app
+```
+
+---
+
+### 9. Terraform Refresh / Plan
+
+Terraform compares the configuration and current infrastructure state when creating a plan.
+
+```bash
+terraform plan
+```
+
+This helps identify infrastructure drift or configuration changes.
+
+---
+
+### 10. Terraform Destroy
+
+Removes resources managed by Terraform.
+
+```bash
+terraform destroy
+```
+
+Terraform asks for confirmation before deleting the infrastructure.
+
+For automated environments:
+
+```bash
+terraform destroy -auto-approve
+```
+
+> ⚠️ `terraform destroy` can delete production infrastructure. Always review the plan and target the correct AWS account/environment.
+
+---
+
+# 🧩 Terraform CLI Quick Reference
+
+| Command                | Purpose                        |
+| ---------------------- | ------------------------------ |
+| `terraform init`       | Initialize Terraform           |
+| `terraform fmt`        | Format `.tf` files             |
+| `terraform validate`   | Validate configuration         |
+| `terraform plan`       | Preview infrastructure changes |
+| `terraform apply`      | Create/update infrastructure   |
+| `terraform output`     | Display outputs                |
+| `terraform show`       | Display Terraform state        |
+| `terraform state list` | List managed resources         |
+| `terraform destroy`    | Delete managed infrastructure  |
+
+### Typical Deployment Sequence
+
+```bash
+terraform init
+terraform fmt
+terraform validate
+terraform plan
+terraform apply
+terraform output
+```
+
+---
+
+# 🔐 Terraform and Security
+
+The Terraform configuration should follow the same security principles as the manually configured architecture.
+
+### Bastion Security Group
+
+```text
+Inbound:
+
+SSH :22
+Source: <ADMIN_PUBLIC_IP>/32
+```
+
+Only the administrator's public IP should be allowed to access SSH where practical.
+
+### Application Security Group
+
+```text
+Inbound:
+
+SSH :22
+Source: <BASTION_SECURITY_GROUP>
+
+HTTP :80
+Source: <ALB_SECURITY_GROUP>
+```
+
+For temporary lab testing through the Bastion:
+
+```text
+TCP :1256
+Source: <BASTION_SECURITY_GROUP>
+```
+
+The application server should not expose SSH or application ports unnecessarily to:
+
+```text
+0.0.0.0/0
+```
+
+---
+
+# 🔑 Terraform Secrets and Sensitive Files
+
+Do not commit the following to GitHub:
+
+```text
+*.pem
+*.key
+.env
+terraform.tfstate
+terraform.tfstate.*
+.terraform/
+```
+
+Example `.gitignore`:
+
+```gitignore
+# Terraform
+.terraform/
+terraform.tfstate
+terraform.tfstate.*
+*.tfstate
+*.tfstate.*
+
+# Sensitive files
+*.pem
+*.key
+.env
+
+# Terraform variable files if they contain secrets
+terraform.tfvars
+*.auto.tfvars
+```
+
+If `terraform.tfvars` contains only non-sensitive configuration, it may be version-controlled according to the project's requirements. However, never commit credentials or secrets.
+
+---
+
+# 🔗 Infrastructure → Application Deployment
+
+Terraform is responsible for **infrastructure provisioning**, while Docker and Nginx are responsible for **application deployment and serving**.
+
+```text
+                Terraform
+                    │
+                    ▼
+          ┌──────────────────┐
+          │ AWS Infrastructure│
+          └────────┬─────────┘
+                   │
+          ┌────────┴────────┐
+          ▼                 ▼
+     Bastion EC2       Application EC2
+          │                 │
+          │ SSH             │
+          └────────────────▶│
+                            │
+                         Docker
+                            │
+                            ▼
+                          Nginx
+                            │
+                            ▼
+                       HTML / CSS
+                         Website
+```
+
+### Responsibility Breakdown
+
+| Technology      | Responsibility                        |
+| --------------- | ------------------------------------- |
+| Terraform       | Infrastructure provisioning           |
+| AWS             | Cloud infrastructure                  |
+| EC2             | Compute servers                       |
+| Security Groups | Network access control                |
+| SSH             | Secure administration                 |
+| Bastion         | Controlled administrative entry point |
+| Git/GitHub      | Source-code management                |
+| Docker          | Application containerization          |
+| Nginx           | Web server                            |
+| HTML/CSS        | Website                               |
+
+This separation makes the project easier to understand and allows infrastructure and application deployment to evolve independently.
+
+---
+
+# 🚀 Complete Infrastructure Deployment Flow
+
+```text
+Developer
+    │
+    │ Terraform CLI
+    ▼
+Terraform Configuration
+    │
+    ├── Provider
+    ├── AMI Data
+    ├── Variables
+    ├── EC2
+    ├── Security Groups
+    └── Outputs
+    │
+    ▼
+AWS
+    │
+    ├───────────────┐
+    ▼               ▼
+Bastion EC2      App EC2
+Public Subnet   Private Subnet
+    │               │
+    │ SSH           │
+    └──────────────▶│
+                    │
+                    ▼
+                  Docker
+                    │
+                    ▼
+                  Nginx
+                    │
+                    ▼
+              Static Website
+```
+
+---
+
+## 📌 Project Summary
+
+This project demonstrates a practical AWS DevOps workflow combining:
+
+```text
+Terraform
+   ↓
+AWS Infrastructure
+   ↓
+EC2 Bastion + Private App Server
+   ↓
+Security Groups
+   ↓
+SSH / Agent Forwarding
+   ↓
+Git / GitHub
+   ↓
+Docker
+   ↓
+Nginx
+   ↓
+HTML/CSS Website
+```
+
+The infrastructure is provisioned using **Terraform**, administrative access is controlled through a **Bastion Host**, and the application is containerized using **Docker** and served through **Nginx** on the private Application Server.
+
+For a production implementation, the application can be placed behind an **Application Load Balancer (ALB)** while keeping the application instances private.
+
+---
+
+## ⭐ Key DevOps Concepts Demonstrated
+
+* Infrastructure as Code (IaC)
+* Terraform provider and resources
+* Terraform variables and outputs
+* Terraform state
+* Terraform plan/apply workflow
+* AWS EC2
+* Public and private networking
+* Security Groups
+* Bastion Host
+* SSH Agent Forwarding
+* Git/GitHub
+* Docker containerization
+* Nginx web server
+* Static website deployment
+* Infrastructure and application separation
+* Basic cloud security practices
+
+---
+
 # 🚀 AWS EC2 Bastion Host + Private Application Server
 
 A production-oriented AWS deployment project demonstrating how to securely host a static website on a **private EC2 instance** using **Docker and Nginx**, while accessing and managing the private server through an **EC2 Bastion/Jump Server**.
